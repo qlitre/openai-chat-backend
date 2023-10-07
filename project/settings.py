@@ -125,11 +125,54 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 AUTH_USER_MODEL = 'register.User'
 
-if DEBUG:
-    INSTALLED_APPS += ['corsheaders']
-    MIDDLEWARE = ['corsheaders.middleware.CorsMiddleware'] + MIDDLEWARE
-    CORS_ORIGIN_WHITELIST = (
-        'http://127.0.0.1:3000',
-        'http://localhost:3000',
-    )
-    CORS_ALLOW_CREDENTIALS = True  # これを追記
+INSTALLED_APPS += ['corsheaders']
+MIDDLEWARE = ['corsheaders.middleware.CorsMiddleware'] + MIDDLEWARE
+CORS_ORIGIN_WHITELIST = (
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+)
+# When you using credential include in the frontend must include below line
+CORS_ALLOW_CREDENTIALS = True
+
+# Email Configuration
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+"""
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_HOST_USER = os.environ.get('EMAIL_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASS')
+EMAIL_USE_TLS = True
+"""
+
+# Frontend/Backend Site Domain for Password Reset Link and Account Activation Link
+# If using ReactJS VueJS NextJS NuxtJS then you can replace with frontend domain
+SITE_DOMAIN = "http://localhost:3000"
+SITE_NAME = "Local Host"
+
+# todo:認証問題がうまくいったらコメントアウトを解除
+"""
+REST_FRAMEWORK = {
+    # Enable Session Authentication for App
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Enable IsAuthenticated Permission
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    # Disable Browsable API and Render JSON
+    'DEFAULT_RENDERER_CLASSES': ('rest_framework.renderers.JSONRenderer',),
+}
+"""
+# Sessionid Expire default is 1209600 sec = 14 days
+SESSION_COOKIE_AGE = 1800  # 30 Min
+
+# It will resolve error Forbidden (Origin checking failed - http://127.0.0.1:3000 does not match any trusted origins.)
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:3000', 'http://localhost:3000']
+
+# default is 31449600 seconds = 1 year approx
+CSRF_COOKIE_AGE = 60 * 60 * 24 * 14  # 14 days
+
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_SECURE = False  # For Production set True
+CSRF_COOKIE_HTTPONLY = False
