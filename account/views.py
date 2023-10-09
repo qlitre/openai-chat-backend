@@ -1,5 +1,5 @@
 from django.contrib.auth import authenticate, login, logout
-from .models import User
+from account.models import User
 from django.contrib.auth.tokens import default_token_generator
 from django.urls import reverse
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -8,11 +8,11 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from .serializers import UserSerializer
+from account.serializers import UserSerializer
 from django.views.decorators.csrf import ensure_csrf_cookie, csrf_protect
 from django.utils.decorators import method_decorator
 from django.conf import settings
-from .utils import send_activation_email, send_reset_password_email
+from account.utils import send_activation_email, send_reset_password_email
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -51,7 +51,7 @@ class RegistrationView(APIView):
             send_activation_email(user.email, activation_url)
 
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'detail': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @method_decorator(csrf_protect, name='dispatch')
@@ -97,9 +97,9 @@ class LoginView(APIView):
         if user is not None:
             if user.is_active:
                 login(request, user)
-                return Response({'detail': 'Logged in successfully.'}, status=status.HTTP_200_OK)
+                return Response({'detail': 'ログインに成功しました'}, status=status.HTTP_200_OK)
         else:
-            return Response({'detail': 'Email or Password is incorrect.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': 'Emailもしくはパスワードが間違っています'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class UserDetailView(APIView):
@@ -107,6 +107,7 @@ class UserDetailView(APIView):
         serializer = UserSerializer(request.user)
         data = serializer.data
         data['is_staff'] = request.user.is_staff
+        data['id'] = request.user.id
         return Response(data)
 
     def patch(self, request):

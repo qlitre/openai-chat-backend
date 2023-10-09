@@ -15,11 +15,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from register.views import ActivateView, ResetPasswordView
+from account.views import ActivateView, ResetPasswordView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/chat/', include('chat.urls')),
-    path('register/activate/<str:uid>/<str:token>/', ActivateView.as_view(), name='activate'),
-    path('register/reset_password/<str:uid>/<str:token>/', ResetPasswordView.as_view(), name='reset_password'),
+    path('account/activate/<str:uid>/<str:token>/', ActivateView.as_view(), name='activate'),
+    path('account/reset_password/<str:uid>/<str:token>/', ResetPasswordView.as_view(), name='reset_password'),
+    path('api/', include('account.urls')),
 ]
