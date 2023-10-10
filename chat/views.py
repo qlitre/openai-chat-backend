@@ -1,5 +1,5 @@
 from .models import Conversation, Message
-from rest_framework import generics, status
+from rest_framework import generics, status, pagination, response
 from .serializers import ConversationSerializer, MessageSerializer, ConversationCreateSerializer, \
     MessageCreateSerializer
 from rest_framework.response import Response
@@ -7,9 +7,25 @@ from account.models import User
 from rest_framework.permissions import AllowAny
 
 
+class StandardResultsSetPagination(pagination.PageNumberPagination):
+    page_size = 10
+
+    def get_paginated_response(self, data):
+        return response.Response({
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'count': self.page.paginator.count,
+            'totalPages': self.page.paginator.num_pages,
+            'currentPage': self.page.number,
+            'results': data,
+            'pageSize': self.page_size,
+        })
+
+
 class ConversationList(generics.ListAPIView):
     serializer_class = ConversationSerializer
     permission_classes = [AllowAny]
+    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         user_id = self.request.query_params.get('user_id')
