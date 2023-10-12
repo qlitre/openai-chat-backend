@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 # 開発中にgptに投げるかどうかを制御する変数
 USE_GPT = True
+gpt_model = 'gpt-3.5-turbo-0613'
 load_dotenv()
 
 
@@ -72,7 +73,7 @@ def get_ai_message_and_topic(prompt):
         # 質問を投げる
         openai.api_key = os.getenv('API_KEY')
         res = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=gpt_model,
             messages=[
                 {"role": "user", "content": prompt},
             ],
@@ -80,7 +81,7 @@ def get_ai_message_and_topic(prompt):
         ai_res = res.choices[0].message['content'].strip()
         # topicを生成
         res = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model=gpt_model,
             messages=[
                 {'role': "system", "content": '以下の文章のトピックを20文字以内で返しなさい'},
                 {"role": "user", "content": ai_res},
@@ -161,7 +162,7 @@ def get_ai_message(prompt=''):
 
     openai.api_key = os.getenv('API_KEY')
     res = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
+        model=gpt_model,
         messages=[
             {"role": "user", "content": prompt},
         ],
