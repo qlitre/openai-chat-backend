@@ -1,33 +1,42 @@
 from django.contrib import admin
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from account.models import User
-
-class UserModelAdmin(BaseUserAdmin):
-    # The fields to be used in displaying the User model.
-    # These override the definitions on the base UserModelAdmin
-    # that reference specific fields on auth.User.
-    list_display = ["id", "email", "name", "is_admin"]
-    list_filter = ["is_admin"]
-    fieldsets = [
-        ("User Credentials", {"fields": ["email", "password"]}),
-        ("Personal info", {"fields": ["name"]}),
-        ("Permissions", {"fields": ["is_admin"]}),
-    ]
-    # add_fieldsets is not a standard ModelAdmin attribute. UserModelAdmin
-    # overrides get_fieldsets to use this attribute when creating a user.
-    add_fieldsets = [
-        (
-            None,
-            {
-                "classes": ["wide"],
-                "fields": ["email", "name", "password1", "password2"],
-            },
-        ),
-    ]
-    search_fields = ["email"]
-    ordering = ["email", "id"]
-    filter_horizontal = []
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.forms import UserChangeForm, UserCreationForm
+from django.utils.translation import gettext_lazy as _
+from .models import User
 
 
-# Now register the new UserModelAdmin
-admin.site.register(User, UserModelAdmin)
+class MyUserChangeForm(UserChangeForm):
+    class Meta:
+        model = User
+        fields = '__all__'
+
+
+class MyUserCreationForm(UserCreationForm):
+    class Meta:
+        model = User
+        fields = ('email',)
+
+
+class MyUserAdmin(UserAdmin):
+    fieldsets = (
+        (None, {'fields': ('email', 'password')}),
+        (_('Personal info'), {'fields': ('first_name', 'last_name')}),
+        (_('Permissions'), {'fields': ('is_active', 'is_staff', 'is_superuser',
+                                       'groups', 'user_permissions')}),
+        (_('Important dates'), {'fields': ('last_login', 'date_joined')}),
+    )
+    add_fieldsets = (
+        (None, {
+            'classes': ('wide',),
+            'fields': ('email', 'password1', 'password2'),
+        }),
+    )
+    form = MyUserChangeForm
+    add_form = MyUserCreationForm
+    list_display = ('email', 'first_name', 'last_name', 'is_staff')
+    list_filter = ('is_staff', 'is_superuser', 'is_active', 'groups')
+    search_fields = ('email', 'first_name', 'last_name')
+    ordering = ('email',)
+
+
+admin.site.register(User, MyUserAdmin)

@@ -91,7 +91,6 @@ class LoginView(APIView):
     def post(self, request):
         email = request.data.get('email')
         password = request.data.get('password')
-
         user = authenticate(request, email=email, password=password)
 
         if user is not None:
@@ -103,9 +102,12 @@ class LoginView(APIView):
 
 
 class UserDetailView(APIView):
+
     def get(self, request):
         serializer = UserSerializer(request.user)
         data = serializer.data
+        data['last_name'] = request.user.last_name
+        data['first_name'] = request.user.first_name
         data['is_staff'] = request.user.is_staff
         data['id'] = request.user.id
         return Response(data)
