@@ -1,4 +1,5 @@
 from .models import Conversation, Message
+from django.db.models import Q
 from rest_framework import generics, status, pagination, response
 from .serializers import ConversationSerializer, MessageSerializer, ConversationCreateSerializer, \
     MessageCreateSerializer
@@ -37,11 +38,43 @@ class ConversationList(generics.ListAPIView):
 
     def get_queryset(self):
         user_id = self.request.query_params.get('user_id')
-
         if not user_id:
             return Conversation.objects.none()  # 空のクエリセットを返します
+        queryset = Conversation.objects.filter(user_id=user_id)
+        # keyword検索
+        keyword = self.request.query_params.get('keyword', None)
+        """
+        topicに含まれていたら検索ヒット
+        もしくは
+        topicに紐づくmessageに全てのキーワードが含まれていたら検索ヒット
+        とする
+        """
+        if keyword:
+            # トピックの検索
+            for word in keyword.split(' '):
+                queryset = queryset.filter(Q(topic__icontains=word))
 
-        return Conversation.objects.filter(user_id=user_id).order_by('-created_at')
+            # メッセージの検索
+            conversation_ids = set()
+            first = True
+            # ※一つにまとめることもできる。
+            for word in keyword.split(' '):
+                messages = Message.objects.filter(user_id=user_id)
+                messages = messages.filter(Q(message__icontains=word))
+                # 少なくとも今のキーワードにヒットした会話ID
+                matched_conversation_ids = set(messages.values_list('conversation_id', flat=True))
+                # 初回はそのままセット
+                if first:
+                    conversation_ids = matched_conversation_ids
+                    first = False
+                else:
+                    # 2回目以降はintersectionで被ってるIDを抽出
+                    conversation_ids = conversation_ids.intersection(matched_conversation_ids)
+            conversations = Conversation.objects.filter(user_id=user_id)
+            # topicで絞りこんだqueryとorでマージするイメージ
+            queryset = queryset | conversations.filter(id__in=conversation_ids)
+
+        return queryset.order_by('-created_at')
 
 
 class MessageList(generics.ListAPIView):
@@ -133,10 +166,10 @@ class MessageCreate(generics.CreateAPIView):
 def build_prompt(conversation_id: int, prompt: str):
     """
     promptを構築する
-    とりあえず直近三回の会話履歴＋新しいprompt
+    とりあえず直近四回の会話履歴＋新しいprompt
     """
     queryset = Message.objects.filter(conversation__id=conversation_id)
-    queryset = queryset.order_by('-created_at')[:3]
+    queryset = queryset.order_by('-created_at')[:4]
     ret = []
     for query in reversed(queryset):
         role = 'user'
