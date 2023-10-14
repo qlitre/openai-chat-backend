@@ -14,7 +14,7 @@ class Conversation(models.Model):
 
 class Message(models.Model):
     """チャットメッセージ"""
-    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE)
+    conversation = models.ForeignKey(Conversation, related_name='messages', on_delete=models.CASCADE)
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     message = models.TextField()
     tokens = models.IntegerField(default=0)

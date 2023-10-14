@@ -5,7 +5,7 @@ from .serializers import ConversationSerializer, MessageSerializer, Conversation
     MessageCreateSerializer
 from rest_framework.response import Response
 from account.models import User
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 import openai
 import os
 from dotenv import load_dotenv
@@ -33,14 +33,14 @@ class StandardResultsSetPagination(pagination.PageNumberPagination):
 
 class ConversationList(generics.ListAPIView):
     serializer_class = ConversationSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         user_id = self.request.query_params.get('user_id')
         if not user_id:
             return Conversation.objects.none()  # 空のクエリセットを返します
-        queryset = Conversation.objects.filter(user_id=user_id)
+        queryset = Conversation.objects.filter(user_id=user_id).prefetch_related('messages')
         # keyword検索
         keyword = self.request.query_params.get('keyword', None)
         """
@@ -79,7 +79,7 @@ class ConversationList(generics.ListAPIView):
 
 class MessageList(generics.ListAPIView):
     serializer_class = MessageSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         conversation_id = self.kwargs.get('conversation_id')
@@ -90,7 +90,7 @@ class MessageList(generics.ListAPIView):
 class ConversationCreate(generics.CreateAPIView):
     queryset = Conversation.objects.all()
     serializer_class = ConversationCreateSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         prompt = self.request.query_params.get('prompt')
@@ -153,7 +153,7 @@ class ConversationCreate(generics.CreateAPIView):
 class MessageCreate(generics.CreateAPIView):
     queryset = Message.objects.all()
     serializer_class = MessageCreateSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         serializer = MessageCreateSerializer(data=request.data)
@@ -183,7 +183,7 @@ def build_prompt(conversation_id: int, prompt: str):
 class AiMessageCreate(generics.CreateAPIView):
     queryset = Message.objects.all()
     serializer_class = MessageCreateSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         message_data = request.data.copy()
