@@ -11,8 +11,9 @@ import os
 from dotenv import load_dotenv
 
 # 開発中にgptに投げるかどうかを制御する変数
-USE_GPT = False
-gpt_model = 'gpt-3.5-turbo-0613'
+USE_GPT = True
+GPT_MODEL = 'gpt-3.5-turbo-0613'
+MARKDOWN_SYSTEM_ORDER = 'マークダウン形式で返してください'
 load_dotenv()
 
 
@@ -36,10 +37,27 @@ class ConversationList(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
     pagination_class = StandardResultsSetPagination
 
+    def get_serializer(self, *args, **kwargs):
+        """
+        このビューで使用されるシリアライザーのインスタンスを返す
+        """
+        serializer_class = self.get_serializer_class()
+        kwargs['context'] = self.get_serializer_context()
+
+        fields = self.request.query_params.get('fields')
+        if fields:
+            fields = fields.split(',')
+            kwargs['fields'] = fields
+
+        exclude = self.request.query_params.get('exclude')
+        if exclude:
+            exclude = exclude.split(',')
+            kwargs['exclude'] = exclude
+
+        return serializer_class(*args, **kwargs)
+
     def get_queryset(self):
-        user_id = self.request.query_params.get('user_id')
-        if not user_id:
-            return Conversation.objects.none()  # 空のクエリセットを返します
+        user_id = self.request.user.id
         queryset = Conversation.objects.filter(user_id=user_id).prefetch_related('messages')
         # keyword検索
         keyword = self.request.query_params.get('keyword', None)
@@ -77,13 +95,19 @@ class ConversationList(generics.ListAPIView):
         return queryset.order_by('-created_at')
 
 
+class ConversationDetail(generics.RetrieveAPIView):
+    queryset = Conversation.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = ConversationSerializer
+
+
 class MessageList(generics.ListAPIView):
     serializer_class = MessageSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         conversation_id = self.kwargs.get('conversation_id')
-        user_id = self.request.query_params.get('user_id')
+        user_id = self.request.user.id
         return Message.objects.filter(conversation__id=conversation_id, user__id=user_id)
 
 
@@ -102,22 +126,23 @@ class ConversationCreate(generics.CreateAPIView):
         else:
             openai.api_key = os.getenv('API_KEY')
             res = openai.ChatCompletion.create(
-                model=gpt_model,
+                model=GPT_MODEL,
                 messages=[
+                    {'role': "system", "content": MARKDOWN_SYSTEM_ORDER},
                     {"role": "user", "content": prompt},
                 ],
             )
-            ai_res = res.choices[0].message['content'].strip()
+            ai_res = res.choices[0].message['content']
             # topicを生成
             res = openai.ChatCompletion.create(
-                model=gpt_model,
+                model=GPT_MODEL,
                 messages=[
                     {'role': "system", "content": '以下の文章のトピックを20文字以内で返しなさい'},
                     {"role": "user", "content": ai_res},
                 ],
             )
             topic = res.choices[0].message['content'].strip()
-        user_id = self.request.query_params.get('user_id')
+        user_id = self.request.user.id
         data = {'user': user_id,
                 'topic': topic}
         serializer = ConversationCreateSerializer(data=data)
@@ -170,7 +195,7 @@ def build_prompt(conversation_id: int, prompt: str):
     """
     queryset = Message.objects.filter(conversation__id=conversation_id)
     queryset = queryset.order_by('-created_at')[:4]
-    ret = []
+    ret = [{'role': "system", "content": MARKDOWN_SYSTEM_ORDER}]
     for query in reversed(queryset):
         role = 'user'
         if query.is_bot:
@@ -189,18 +214,17 @@ class AiMessageCreate(generics.CreateAPIView):
         message_data = request.data.copy()
         prompt = request.data.get('message')
         msg = None
+        conversation_id = kwargs.get('conversation_id')
         if not USE_GPT:
             from .ai_mock import get_mock_response
             msg = get_mock_response()
         else:
             openai.api_key = os.getenv('API_KEY')
-            conversation_id = kwargs.get('conversation_id')
             res = openai.ChatCompletion.create(
-                model=gpt_model,
+                model=GPT_MODEL,
                 messages=build_prompt(conversation_id, prompt)
             )
             msg = res.choices[0].message['content'].strip()
-
         message_data['message'] = msg
         serializer = MessageCreateSerializer(data=message_data)
         if serializer.is_valid():
