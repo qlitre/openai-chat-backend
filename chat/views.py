@@ -60,7 +60,7 @@ class ConversationList(generics.ListAPIView):
         user_id = self.request.user.id
         queryset = Conversation.objects.filter(user_id=user_id).prefetch_related('messages')
         # keyword検索
-        keyword = self.request.query_params.get('keyword', None)
+        keyword = self.request.query_params.get('q', None)
         """
         topicに含まれていたら検索ヒット
         もしくは
@@ -99,16 +99,6 @@ class ConversationDetail(generics.RetrieveAPIView):
     queryset = Conversation.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = ConversationSerializer
-
-
-class MessageList(generics.ListAPIView):
-    serializer_class = MessageSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        conversation_id = self.kwargs.get('conversation_id')
-        user_id = self.request.user.id
-        return Message.objects.filter(conversation__id=conversation_id, user__id=user_id)
 
 
 class ConversationCreate(generics.CreateAPIView):
