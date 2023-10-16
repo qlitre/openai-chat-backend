@@ -1,20 +1,15 @@
 from .models import Conversation, Message
 from django.db.models import Q
 from rest_framework import generics, status, pagination, response
-from .serializers import ConversationSerializer, MessageSerializer, ConversationCreateSerializer, \
+from .serializers import ConversationSerializer, ConversationCreateSerializer, \
     MessageCreateSerializer
+from .open_ai_client import OpenAIClient
 from rest_framework.response import Response
 from account.models import User
 from rest_framework.permissions import IsAuthenticated
-import openai
-import os
-from dotenv import load_dotenv
 
 # 開発中にgptに投げるかどうかを制御する変数
 USE_GPT = True
-GPT_MODEL = 'gpt-3.5-turbo-0613'
-MARKDOWN_SYSTEM_ORDER = 'マークダウン形式で返してください'
-load_dotenv()
 
 
 class StandardResultsSetPagination(pagination.PageNumberPagination):
@@ -110,28 +105,20 @@ class ConversationCreate(generics.CreateAPIView):
         prompt = self.request.query_params.get('prompt')
         ai_res = None
         topic = None
+        tokens = 0
         if not USE_GPT:
             from .ai_mock import get_mock_topic_and_response
             ai_res, topic = get_mock_topic_and_response()
         else:
-            openai.api_key = os.getenv('API_KEY')
-            res = openai.ChatCompletion.create(
-                model=GPT_MODEL,
-                messages=[
-                    {'role': "system", "content": MARKDOWN_SYSTEM_ORDER},
-                    {"role": "user", "content": prompt},
-                ],
-            )
+            client = OpenAIClient()
+            res = client.generate_response_single_prompt(prompt)
+            tokens += res['usage']['total_tokens']
             ai_res = res.choices[0].message['content']
             # topicを生成
-            res = openai.ChatCompletion.create(
-                model=GPT_MODEL,
-                messages=[
-                    {'role': "system", "content": '以下の文章のトピックを20文字以内で返しなさい'},
-                    {"role": "user", "content": ai_res},
-                ],
-            )
-            topic = res.choices[0].message['content'].strip()
+            topic_res = client.generate_topic_response(ai_res)
+            topic = topic_res.choices[0].message['content'].strip()
+            tokens += topic_res['usage']['total_tokens']
+
         user_id = self.request.user.id
         data = {'user': user_id,
                 'topic': topic}
@@ -152,6 +139,7 @@ class ConversationCreate(generics.CreateAPIView):
                 conversation=conversation_instance,
                 user=user_instance,
                 message=ai_res,
+                tokens=tokens,
                 is_bot=True
             )
             prompt_serializer = MessageCreateSerializer(new_prompt)
@@ -178,14 +166,14 @@ class MessageCreate(generics.CreateAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-def build_prompt(conversation_id: int, prompt: str):
+def build_history(conversation_id: int, prompt: str):
     """
-    promptを構築する
+    履歴を構築する
     とりあえず直近四回の会話履歴＋新しいprompt
     """
     queryset = Message.objects.filter(conversation__id=conversation_id)
     queryset = queryset.order_by('-created_at')[:4]
-    ret = [{'role': "system", "content": MARKDOWN_SYSTEM_ORDER}]
+    ret = []
     for query in reversed(queryset):
         role = 'user'
         if query.is_bot:
@@ -205,17 +193,18 @@ class AiMessageCreate(generics.CreateAPIView):
         prompt = request.data.get('message')
         msg = None
         conversation_id = kwargs.get('conversation_id')
+        tokens = 0
         if not USE_GPT:
             from .ai_mock import get_mock_response
             msg = get_mock_response()
         else:
-            openai.api_key = os.getenv('API_KEY')
-            res = openai.ChatCompletion.create(
-                model=GPT_MODEL,
-                messages=build_prompt(conversation_id, prompt)
-            )
+            client = OpenAIClient()
+            messages = build_history(conversation_id, prompt)
+            res = client.generate_response_with_history(messages)
+            tokens += res['usage']['total_tokens']
             msg = res.choices[0].message['content'].strip()
         message_data['message'] = msg
+        message_data['tokens'] = tokens
         serializer = MessageCreateSerializer(data=message_data)
         if serializer.is_valid():
             serializer.save()

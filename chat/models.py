@@ -20,3 +20,6 @@ class Message(models.Model):
     tokens = models.IntegerField(default=0)
     is_bot = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.message[:32]
