@@ -102,7 +102,7 @@ class ConversationCreate(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        prompt = self.request.query_params.get('prompt')
+        prompt = self.request.data.get('prompt')
         ai_res = None
         topic = None
         tokens = 0
@@ -112,11 +112,12 @@ class ConversationCreate(generics.CreateAPIView):
         else:
             client = OpenAIClient()
             res = client.generate_response_single_prompt(prompt)
+
             tokens += res['usage']['total_tokens']
-            ai_res = res.choices[0].message['content']
+            ai_res = res['choices'][0]['message']['content']
             # topicを生成
             topic_res = client.generate_topic_response(ai_res)
-            topic = topic_res.choices[0].message['content'].strip()
+            topic = topic_res['choices'][0]['message']['content'].strip()
             tokens += topic_res['usage']['total_tokens']
 
         user_id = self.request.user.id
@@ -159,7 +160,10 @@ class MessageCreate(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        serializer = MessageCreateSerializer(data=request.data)
+        data = request.data.copy()
+        data['user'] = self.request.user.id
+        data['conversation'] = kwargs.get('conversation_id')
+        serializer = MessageCreateSerializer(data=data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -189,7 +193,7 @@ class AiMessageCreate(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        message_data = request.data.copy()
+        data = request.data.copy()
         prompt = request.data.get('message')
         msg = None
         conversation_id = kwargs.get('conversation_id')
@@ -202,10 +206,13 @@ class AiMessageCreate(generics.CreateAPIView):
             messages = build_history(conversation_id, prompt)
             res = client.generate_response_with_history(messages)
             tokens += res['usage']['total_tokens']
-            msg = res.choices[0].message['content'].strip()
-        message_data['message'] = msg
-        message_data['tokens'] = tokens
-        serializer = MessageCreateSerializer(data=message_data)
+            msg = res['choices'][0]['message']['content'].strip()
+
+        data['message'] = msg
+        data['user'] = self.request.user.id
+        data['conversation'] = conversation_id
+        data['tokens'] = tokens
+        serializer = MessageCreateSerializer(data=data)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)

@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import Conversation, Message
-from django.conf import settings
 
 
 class DynamicFieldsModelSerializer(serializers.ModelSerializer):
