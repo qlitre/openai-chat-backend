@@ -161,27 +161,47 @@ class MessageCreateTestCase(LoggedInTestCase):
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(topic="Test Topic", user=self.user)
-        self.valid_message_data = {
-            'message': 'This is a test message',
-            'is_bot': False
+        self.valid_payload = {
+            'message': 'Hello ChatGPT',
+            'user': self.user.id,
+            'is_bot': False,
+            'conversation': self.conversation.id
         }
-        self.invalid_message_data = {
+        self.invalid_payload = {
             'conversation': '',
             'message': '',
             'user': '',
             'is_bot': ''
         }
 
-    def test_create_message_valid_data(self):
-        """
-        正しいデータでメッセージ作成リクエストをテスト
-        """
-        url = reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id})
-        response = self.client.post(url, self.valid_message_data, format='json')
+    @patch('chat.views.OpenAIClient')
+    def test_create_message_with_valid_data(self, mock_openai):
+        mock_openai.return_value.generate_response_with_history.return_value = {
+            'usage': {'total_tokens': 10},
+            'choices': [{'message': {'content': 'Mocked AI response'}}]
+        }
+        data = {'message': 'Hello, AI!', 'is_bot': True}
+
+        response = self.client.post(
+            reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id}),
+            data,
+            format='json'
+        )
+        expected_response = 'Mocked AI response'
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['message'], 'This is a test message')
-        self.assertEqual(response.data['conversation'], self.conversation.id)
-        self.assertFalse(response.data['is_bot'])
+        self.assertTrue(Message.objects.filter(message='Hello, AI!').exists())
+        self.assertEqual(Message.objects.count(), 2)
+        self.assertEqual(response.data['message'], expected_response)
+        self.assertTrue(Message.objects.filter(message=expected_response).exists())
+
+    def test_create_message_with_invalid_data(self):
+        # 例: messageキーが欠落しているペイロード
+        response = self.client.post(
+            reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id}),
+            self.invalid_payload
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_message_unauthenticated(self):
         """
@@ -189,52 +209,5 @@ class MessageCreateTestCase(LoggedInTestCase):
         """
         self.client.logout()
         url = reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id})
-        response = self.client.post(url, self.valid_message_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_create_message_invalid_data(self):
-        """
-        不正なデータでメッセージ作成リクエストをテスト
-        """
-        url = reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id})
-        response = self.client.post(url, self.invalid_message_data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-
-class AiMessageCreateTestCase(LoggedInTestCase):
-
-    def setUp(self):
-        super().setUp()
-        self.conversation = Conversation.objects.create(user=self.user, topic='Test Topic')
-        self.message1 = Message.objects.create(conversation=self.conversation, message="Hello World", user=self.user)
-        self.message2 = Message.objects.create(conversation=self.conversation, message="Hello Django", user=self.user)
-
-    @patch('chat.views.OpenAIClient')
-    def test_create_ai_message(self, mock_openai):
-        """
-        作成のテスト
-        """
-        url = reverse('chat:ai_message_create', kwargs={'conversation_id': self.conversation.id})
-        mock_openai.return_value.generate_response_with_history.return_value = {
-            'usage': {'total_tokens': 10},
-            'choices': [{'message': {'content': 'Mocked AI response'}}]
-        }
-        data = {'message': 'Hello, AI!', 'is_bot': True}
-        response = self.client.post(url, data, format='json')
-        # ステータスコードとメッセージを確認
-        expected_response = 'Mocked AI response'
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['message'], expected_response)
-
-        # データベースにメッセージが保存されたことを確認
-        self.assertTrue(Message.objects.filter(message=expected_response).exists())
-
-    def test_create_ai_message_unauthenticated(self):
-        """
-        ログアウト時に作成できないことをテスト
-        """
-        self.client.logout()
-        url = reverse('chat:ai_message_create', kwargs={'conversation_id': self.conversation.id})
-        data = {'message': 'Hello, AI!', 'is_bot': True}
-        response = self.client.post(url, data, format='json')
+        response = self.client.post(url, self.valid_payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

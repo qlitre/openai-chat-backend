@@ -7,6 +7,7 @@ from .open_ai_client import OpenAIClient
 from rest_framework.response import Response
 from account.models import User
 from rest_framework.permissions import IsAuthenticated
+import openai
 
 # 開発中にgptに投げるかどうかを制御する変数
 USE_GPT = True
@@ -111,11 +112,16 @@ class ConversationCreate(generics.CreateAPIView):
             ai_res, topic = get_mock_topic_and_response()
         else:
             client = OpenAIClient()
-            res = client.generate_response_single_prompt(prompt)
+            try:
+                res = client.generate_response_single_prompt(prompt)
+            except openai.error.InvalidRequestError as err:
+                r = {'detail': str(err)}
+                return Response(r, status=status.HTTP_400_BAD_REQUEST)
 
             tokens += res['usage']['total_tokens']
             ai_res = res['choices'][0]['message']['content']
             # topicを生成
+            # todo:ここも何らかのエラーハンドリングをするべきかもしれない
             topic_res = client.generate_topic_response(ai_res)
             topic = topic_res['choices'][0]['message']['content'].strip()
             tokens += topic_res['usage']['total_tokens']
@@ -154,22 +160,6 @@ class ConversationCreate(generics.CreateAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class MessageCreate(generics.CreateAPIView):
-    queryset = Message.objects.all()
-    serializer_class = MessageCreateSerializer
-    permission_classes = [IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        data['user'] = self.request.user.id
-        data['conversation'] = kwargs.get('conversation_id')
-        serializer = MessageCreateSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 def build_history(conversation_id: int, prompt: str):
     """
     履歴を構築する
@@ -187,14 +177,22 @@ def build_history(conversation_id: int, prompt: str):
     return ret
 
 
-class AiMessageCreate(generics.CreateAPIView):
+class MessageCreate(generics.CreateAPIView):
     queryset = Message.objects.all()
     serializer_class = MessageCreateSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        prompt = request.data.get('message')
+        prompt = request.data['message']
+        prompt_data = request.data.copy()
+        user_id = self.request.user.id
+        conversation_id = kwargs.get('conversation_id')
+        prompt_data['user'] = user_id
+        prompt_data['is_bot'] = False
+        prompt_data['conversation'] = conversation_id
+        prompt_serializer = MessageCreateSerializer(data=prompt_data)
+
+        ai_data = request.data.copy()
         msg = None
         conversation_id = kwargs.get('conversation_id')
         tokens = 0
@@ -204,16 +202,23 @@ class AiMessageCreate(generics.CreateAPIView):
         else:
             client = OpenAIClient()
             messages = build_history(conversation_id, prompt)
-            res = client.generate_response_with_history(messages)
+            try:
+                res = client.generate_response_with_history(messages)
+            except openai.error.InvalidRequestError as err:
+                r = {'detail': str(err)}
+                return Response(r, status=status.HTTP_400_BAD_REQUEST)
             tokens += res['usage']['total_tokens']
             msg = res['choices'][0]['message']['content'].strip()
 
-        data['message'] = msg
-        data['user'] = self.request.user.id
-        data['conversation'] = conversation_id
-        data['tokens'] = tokens
-        serializer = MessageCreateSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        ai_data['message'] = msg
+        ai_data['user'] = self.request.user.id
+        ai_data['is_bot'] = True
+        ai_data['conversation'] = conversation_id
+        ai_data['tokens'] = tokens
+        ai_serializer = MessageCreateSerializer(data=ai_data)
+
+        if prompt_serializer.is_valid() and ai_serializer.is_valid():
+            prompt_serializer.save()
+            ai_serializer.save()
+            return Response(ai_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(prompt_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
