@@ -7,7 +7,9 @@ from .open_ai_client import OpenAIClient
 from rest_framework.response import Response
 from account.models import User
 from rest_framework.permissions import IsAuthenticated
+from collections import deque
 import openai
+import tiktoken
 
 # 開発中にgptに投げるかどうかを制御する変数
 USE_GPT = True
@@ -167,13 +169,32 @@ def build_history(conversation_id: int, prompt: str):
     """
     queryset = Message.objects.filter(conversation__id=conversation_id)
     queryset = queryset.order_by('-created_at')[:4]
-    ret = []
-    for query in reversed(queryset):
+
+    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    num_tokens = 0
+    tokens_per_message = 8
+    # 実際は4097だが安全マージンをとって4000までとする
+    # なんかcompletion用に1024確保しないといけないっぽい
+    max_token = 4000 - 1024
+
+    # ユーザーが送信したメッセージを加える
+    ret = deque()
+    ret.append({'role': 'user', 'content': prompt})
+    num_tokens += tokens_per_message
+    num_tokens += len(encoding.encode(prompt))
+    for query in queryset:
         role = 'user'
         if query.is_bot:
             role = 'assistant'
-        ret.append({'role': role, 'content': query.message})
-    ret.append({'role': 'user', 'content': prompt})
+        num_tokens += tokens_per_message
+        # メッセージを足してもmax_token以内なら履歴に加える
+        add_token = len(encoding.encode(query.message))
+        if num_tokens + add_token <= max_token:
+            num_tokens += add_token
+            ret.appendleft({'role': role, 'content': query.message})
+        else:
+            break
+
     return ret
 
 
