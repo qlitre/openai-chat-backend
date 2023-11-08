@@ -116,17 +116,16 @@ class ConversationCreate(generics.CreateAPIView):
             client = OpenAIClient()
             try:
                 res = client.generate_response_single_prompt(prompt)
-            except openai.error.InvalidRequestError as err:
+            except openai.BadRequestError as err:
                 r = {'detail': str(err)}
                 return Response(r, status=status.HTTP_400_BAD_REQUEST)
-
-            tokens += res['usage']['total_tokens']
-            ai_res = res['choices'][0]['message']['content']
+            tokens += res.usage.total_tokens
+            ai_res = res.choices[0].message.content.strip()
             # topicを生成
             # todo:ここも何らかのエラーハンドリングをするべきかもしれない
             topic_res = client.generate_topic_response(ai_res)
-            topic = topic_res['choices'][0]['message']['content'].strip()
-            tokens += topic_res['usage']['total_tokens']
+            topic = topic_res.choices[0].message.content.strip()
+            tokens += topic_res.usage.total_tokens
 
         user_id = self.request.user.id
         data = {'user': user_id,
@@ -225,11 +224,11 @@ class MessageCreate(generics.CreateAPIView):
             messages = build_history(conversation_id, prompt)
             try:
                 res = client.generate_response_with_history(messages)
-            except openai.error.InvalidRequestError as err:
+            except openai.BadRequestError as err:
                 r = {'detail': str(err)}
                 return Response(r, status=status.HTTP_400_BAD_REQUEST)
-            tokens += res['usage']['total_tokens']
-            msg = res['choices'][0]['message']['content'].strip()
+            tokens += res.usage.total_tokens
+            msg = res.choices[0].message.content.strip()
 
         ai_data['message'] = msg
         ai_data['user'] = self.request.user.id

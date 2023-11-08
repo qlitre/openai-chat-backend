@@ -1,2 +1,8 @@
-You're receiving this email because you need to finish activation process.
-{{ activation_url }}
+{% block subject %}
+会員登録
+{% endblock subject %}
+
+{% block text_body %}
+以下のURLからアカウントを有効化してください。
+{{ protocol }}://{{ domain }}/{{ url|safe }}
+{% endblock text_body %}

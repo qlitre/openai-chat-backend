@@ -78,7 +78,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.first_name
 
     def email_user(self, subject, message, from_email=None, **kwargs):
-        """Send email to this user."""
+        """Send an email to this user."""
         send_mail(subject, message, from_email, [self.email], **kwargs)
 
     @property

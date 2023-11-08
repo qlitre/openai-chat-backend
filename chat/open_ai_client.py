@@ -18,7 +18,7 @@ class OpenAIClient:
         """
         messages = [{'role': "system", "content": self.base_system_order},
                     {"role": "user", "content": prompt}]
-        res = openai.ChatCompletion.create(
+        res = openai.chat.completions.create(
             model=self.model_name,
             messages=messages,
             max_tokens=max_tokens
@@ -31,7 +31,7 @@ class OpenAIClient:
         """
         messages = [{'role': "system", "content": '以下の文章のトピックを20文字以内で返しなさい'},
                     {"role": "user", "content": prompt}]
-        res = openai.ChatCompletion.create(
+        res = openai.chat.completions.create(
             model=self.model_name,
             messages=messages,
             max_tokens=max_tokens
@@ -45,7 +45,7 @@ class OpenAIClient:
         _messages = [{'role': "system", "content": self.base_system_order}]
         for elm in messages:
             _messages.append(elm)
-        res = openai.ChatCompletion.create(
+        res = openai.chat.completions.create(
             model=self.model_name,
             messages=_messages,
             max_tokens=max_tokens

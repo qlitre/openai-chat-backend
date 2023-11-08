@@ -1,8 +1,8 @@
 Django==4.1.7
-django-allauth==0.52.0
 djangorestframework==3.14.0
 djangorestframework-simplejwt==5.2.2
 django-cors-headers
 python-dotenv
 openai
 tiktoken
+djoser
