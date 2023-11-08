@@ -1,4 +1,4 @@
-chatgptアプリのバックエンドです。
+OpenAI API Chatアプリのバックエンドです。
 
 Django REST Framework
 
