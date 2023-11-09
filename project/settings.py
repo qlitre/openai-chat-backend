@@ -129,6 +129,7 @@ DOMAIN = os.environ.get('DOMAIN', "localhost:3000")
 SITE_NAME = "Example"
 
 DJOSER = {
+    'USER_CREATE_PASSWORD_RETYPE': True,
     'PASSWORD_RESET_CONFIRM_URL': 'account/reset_password/{uid}/{token}',
     'PASSWORD_RESET_SHOW_EMAIL_NOT_FOUND': True,
     'ACTIVATION_URL': 'account/activate/{uid}/{token}',
@@ -137,7 +138,9 @@ DJOSER = {
         'activation': 'account.email.ActivationEmail',
         'password_reset': 'account.email.PasswordResetEmail'
     },
-    'SERIALIZERS': {},
+    'SERIALIZERS': {
+        'user_create': 'account.serializers.CustomUserCreateSerializer',
+    },
 }
 
 CORS_ORIGIN_WHITELIST = (
