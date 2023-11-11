@@ -131,6 +131,7 @@ SITE_NAME = "Example"
 DJOSER = {
     'USER_CREATE_PASSWORD_RETYPE': True,
     'PASSWORD_RESET_CONFIRM_URL': 'account/reset_password/{uid}/{token}',
+    'PASSWORD_RESET_CONFIRM_RETYPE': True,
     'PASSWORD_RESET_SHOW_EMAIL_NOT_FOUND': True,
     'ACTIVATION_URL': 'account/activate/{uid}/{token}',
     'SEND_ACTIVATION_EMAIL': True,
