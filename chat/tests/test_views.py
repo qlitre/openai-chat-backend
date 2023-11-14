@@ -5,6 +5,29 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 from chat.models import Conversation, Message
 from chat.serializers import ConversationSerializer, ConversationCreateSerializer, MessageCreateSerializer
+from rest_framework.authtoken.models import Token
+from pydantic import BaseModel
+from typing import List
+
+
+class MessageModel(BaseModel):
+    content: str
+
+
+class Choice(BaseModel):
+    message: MessageModel
+
+
+class Usage(BaseModel):
+    total_tokens: int
+
+
+class Response(BaseModel):
+    usage: Usage
+    choices: List[Choice]
+
+    def total_tokens(self):
+        return self.usage.total_tokens
 
 
 class LoggedInTestCase(APITestCase):
@@ -18,6 +41,11 @@ class LoggedInTestCase(APITestCase):
         self.user = User.objects.create_user(email='testuser@example.com', password=password)
         self.client = APIClient()
         self.client.login(email=self.user.email, password=password)
+        # Tokenの生成
+        self.token, created = Token.objects.get_or_create(user=self.user)
+
+        # Tokenをリクエストヘッダーに設定
+        self.client.credentials(HTTP_AUTHORIZATION='Token ' + self.token.key)
 
 
 class ConversationListTestCase(LoggedInTestCase):
@@ -100,7 +128,7 @@ class ConversationDetailTestCase(LoggedInTestCase):
         url = reverse('chat:conversation_detail', kwargs={'pk': self.conversation.pk})
         response = self.client.get(url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class ConversationCreateTestCase(LoggedInTestCase):
@@ -113,14 +141,14 @@ class ConversationCreateTestCase(LoggedInTestCase):
         会話の作成をテスト
         """
         # OpenAIのレスポンスをモック化
-        mock_openai.return_value.generate_response_single_prompt.return_value = {
+        mock_openai.return_value.generate_response_single_prompt.return_value = Response(**{
             'usage': {'total_tokens': 10},
             'choices': [{'message': {'content': 'Mocked AI response'}}]
-        }
-        mock_openai.return_value.generate_topic_response.return_value = {
+        })
+        mock_openai.return_value.generate_topic_response.return_value = Response(**{
             'usage': {'total_tokens': 10},
             'choices': [{'message': {'content': 'Mocked Topic'}}]
-        }
+        })
 
         url = reverse('chat:conversation_create')
         data = {'prompt': 'Test prompt'}
@@ -154,7 +182,7 @@ class ConversationCreateTestCase(LoggedInTestCase):
         url = reverse('chat:conversation_create')
         data = {'prompt': 'Test prompt'}
         response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class MessageCreateTestCase(LoggedInTestCase):
@@ -176,10 +204,10 @@ class MessageCreateTestCase(LoggedInTestCase):
 
     @patch('chat.views.OpenAIClient')
     def test_create_message_with_valid_data(self, mock_openai):
-        mock_openai.return_value.generate_response_with_history.return_value = {
+        mock_openai.return_value.generate_response_with_history.return_value = Response(**{
             'usage': {'total_tokens': 10},
             'choices': [{'message': {'content': 'Mocked AI response'}}]
-        }
+        })
         data = {'message': 'Hello, AI!', 'is_bot': True}
 
         response = self.client.post(
@@ -210,4 +238,4 @@ class MessageCreateTestCase(LoggedInTestCase):
         self.client.logout()
         url = reverse('chat:message_create', kwargs={'conversation_id': self.conversation.id})
         response = self.client.post(url, self.valid_payload, format='json')
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
