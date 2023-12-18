@@ -6,13 +6,123 @@ from .serializers import ConversationSerializer, ConversationCreateSerializer, \
 from .open_ai_client import OpenAIClient
 from rest_framework.response import Response
 from account.models import User
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from collections import deque
-import openai
 import tiktoken
+from django.http import StreamingHttpResponse
+from rest_framework.views import APIView
+import json
 
 # 開発中にgptに投げるかどうかを制御する変数
 USE_GPT = True
+
+
+def calc_token(s: str):
+    """Token数を計算して返す"""
+    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    tokens_per_message = 8
+    add_token = len(encoding.encode(s))
+    return tokens_per_message + add_token
+
+
+def build_history(conversation_id: int, prompt: str):
+    """
+    履歴を構築する
+    とりあえず直近四回の会話履歴＋新しいprompt
+    """
+    queryset = Message.objects.filter(conversation__id=conversation_id)
+    queryset = queryset.order_by('-created_at')[:4]
+
+    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
+    # 実際は4097だが安全マージンをとって4000までとする
+    # なんかcompletion用に1024確保しないといけないっぽい
+    max_token = 4000 - 1024
+    # ユーザーが送信したメッセージを加える
+    ret = deque()
+    ret.append({'role': 'user', 'content': prompt})
+    num_tokens = calc_token(prompt)
+    for query in queryset:
+        role = 'user'
+        if query.is_bot:
+            role = 'assistant'
+        # メッセージを足してもmax_token以内なら履歴に加える
+        add_token = calc_token(query.message)
+        if num_tokens + add_token <= max_token:
+            num_tokens += add_token
+            ret.appendleft({'role': role, 'content': query.message})
+        else:
+            break
+
+    return num_tokens, list(ret)
+
+
+class ChatGPTStreamView(APIView):
+    """
+    初回の会話作成時に呼び出されるストリームビュー
+    """
+
+    @staticmethod
+    def generate_stream_response(stream_response):
+        for chunk in stream_response:
+            chat_completion_delta = chunk.choices[0].delta
+            data = json.dumps(dict(chat_completion_delta))
+            yield f'data: {data}\n\n'
+        # ストリームの終了を示すメッセージを送信
+        end_of_stream_message = json.dumps({"end_of_stream": True})
+        yield f'data: {end_of_stream_message}'
+
+    def post(self, request):
+        prompt = self.request.data.get('prompt')
+        messages = [{"role": "user", "content": prompt}]
+        client = OpenAIClient()
+        stream_response = client.generate_stream_response(messages)
+
+        r = StreamingHttpResponse(self.generate_stream_response(stream_response), content_type='text/event-stream')
+        r['X-Accel-Buffering'] = 'no'  # Disable buffering in nginx
+        r['Cache-Control'] = 'no-cache'  # Ensure clients don't cache the data
+
+        return r
+
+
+class ChatGPTStreamWithHistoryView(APIView):
+    """
+    履歴付きのチャットストリームを提供
+    """
+
+    @staticmethod
+    def generate_stream_response(stream_response):
+        for chunk in stream_response:
+            chat_completion_delta = chunk.choices[0].delta
+            data = json.dumps(dict(chat_completion_delta))
+            yield f'data: {data}\n\n'
+        end_of_stream_message = json.dumps({"end_of_stream": True})
+        yield f'data: {end_of_stream_message}'
+
+    def post(self, request, *args, **kwargs):
+        prompt = self.request.data.get('prompt')
+        conversation_id = self.kwargs.get('pk')
+        token, messages = build_history(conversation_id, prompt)
+
+        # ここで一回promptの保存処理をする
+        user_id = self.request.user.id
+        conversation_instance = Conversation.objects.get(id=conversation_id)
+        user_instance = User.objects.get(id=user_id)
+        Message.objects.create(
+            conversation=conversation_instance,
+            user=user_instance,
+            message=prompt,
+            tokens=token,
+            is_bot=False
+        )
+
+        client = OpenAIClient()
+        stream_response = client.generate_stream_response(messages)
+
+        r = StreamingHttpResponse(self.generate_stream_response(stream_response), content_type='text/event-stream')
+        r['X-Accel-Buffering'] = 'no'  # Disable buffering in nginx
+        r['Cache-Control'] = 'no-cache'  # Ensure clients don't cache the data
+
+        return r
 
 
 class StandardResultsSetPagination(pagination.PageNumberPagination):
@@ -106,40 +216,27 @@ class ConversationCreate(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         prompt = self.request.data.get('prompt')
-        ai_res = None
-        topic = None
-        tokens = 0
-        if not USE_GPT:
-            from .ai_mock import get_mock_topic_and_response
-            ai_res, topic = get_mock_topic_and_response()
-        else:
-            client = OpenAIClient()
-            try:
-                res = client.generate_response_single_prompt(prompt)
-            except openai.BadRequestError as err:
-                r = {'detail': str(err)}
-                return Response(r, status=status.HTTP_400_BAD_REQUEST)
-            tokens += res.usage.total_tokens
-            ai_res = res.choices[0].message.content.strip()
-            # topicを生成
-            # todo:ここも何らかのエラーハンドリングをするべきかもしれない
-            topic_res = client.generate_topic_response(ai_res)
-            topic = topic_res.choices[0].message.content.strip()
-            tokens += topic_res.usage.total_tokens
-
+        ai_res = self.request.data.get('ai_res')
+        topic_token = 0
+        client = OpenAIClient()
+        topic_prompt = f'[prompt]\n{prompt}\n\n[ai]\n{ai_res}'
+        topic_response = client.generate_topic_response(topic_prompt)
+        topic = topic_response.choices[0].message.content.strip()
+        topic_token += topic_response.usage.total_tokens
         user_id = self.request.user.id
         data = {'user': user_id,
                 'topic': topic}
         serializer = ConversationCreateSerializer(data=data)
         if serializer.is_valid():
-            # Conversationのインスタンスを保存
             conversation_instance = serializer.save()
             user_instance = User.objects.get(id=user_id)
             # Messageモデルにデータを保存
+            # 初回はtopicのtokenを加える
             new_prompt = Message.objects.create(
                 conversation=conversation_instance,
                 user=user_instance,
                 message=prompt,
+                tokens=calc_token(prompt) + topic_token,
                 is_bot=False
             )
             # AIの返事も追加
@@ -147,7 +244,7 @@ class ConversationCreate(generics.CreateAPIView):
                 conversation=conversation_instance,
                 user=user_instance,
                 message=ai_res,
-                tokens=tokens,
+                tokens=calc_token(ai_res),
                 is_bot=True
             )
             prompt_serializer = MessageCreateSerializer(new_prompt)
@@ -161,84 +258,26 @@ class ConversationCreate(generics.CreateAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-def build_history(conversation_id: int, prompt: str):
-    """
-    履歴を構築する
-    とりあえず直近四回の会話履歴＋新しいprompt
-    """
-    queryset = Message.objects.filter(conversation__id=conversation_id)
-    queryset = queryset.order_by('-created_at')[:4]
-
-    encoding = tiktoken.encoding_for_model("gpt-3.5-turbo")
-    num_tokens = 0
-    tokens_per_message = 8
-    # 実際は4097だが安全マージンをとって4000までとする
-    # なんかcompletion用に1024確保しないといけないっぽい
-    max_token = 4000 - 1024
-
-    # ユーザーが送信したメッセージを加える
-    ret = deque()
-    ret.append({'role': 'user', 'content': prompt})
-    num_tokens += tokens_per_message
-    num_tokens += len(encoding.encode(prompt))
-    for query in queryset:
-        role = 'user'
-        if query.is_bot:
-            role = 'assistant'
-        num_tokens += tokens_per_message
-        # メッセージを足してもmax_token以内なら履歴に加える
-        add_token = len(encoding.encode(query.message))
-        if num_tokens + add_token <= max_token:
-            num_tokens += add_token
-            ret.appendleft({'role': role, 'content': query.message})
-        else:
-            break
-
-    return ret
-
-
 class MessageCreate(generics.CreateAPIView):
     queryset = Message.objects.all()
     serializer_class = MessageCreateSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        prompt = request.data['message']
-        prompt_data = request.data.copy()
-        user_id = self.request.user.id
+        message = request.data['message']
+        data = request.data.copy()
+        user_id = request.user.id
         conversation_id = kwargs.get('conversation_id')
-        prompt_data['user'] = user_id
-        prompt_data['is_bot'] = False
-        prompt_data['conversation'] = conversation_id
-        prompt_serializer = MessageCreateSerializer(data=prompt_data)
+        token = calc_token(message)
 
-        ai_data = request.data.copy()
-        msg = None
-        conversation_id = kwargs.get('conversation_id')
-        tokens = 0
-        if not USE_GPT:
-            from .ai_mock import get_mock_response
-            msg = get_mock_response()
+        # 受け取ったデータにユーザーID、会話ID、トークンを追加
+        data['user'] = user_id
+        data['conversation'] = conversation_id
+        data['token'] = token
+        # シリアライザを使用してバリデーションと保存
+        serializer = self.get_serializer(data=data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         else:
-            client = OpenAIClient()
-            messages = build_history(conversation_id, prompt)
-            try:
-                res = client.generate_response_with_history(messages)
-            except openai.BadRequestError as err:
-                r = {'detail': str(err)}
-                return Response(r, status=status.HTTP_400_BAD_REQUEST)
-            tokens += res.usage.total_tokens
-            msg = res.choices[0].message.content.strip()
-
-        ai_data['message'] = msg
-        ai_data['user'] = self.request.user.id
-        ai_data['is_bot'] = True
-        ai_data['conversation'] = conversation_id
-        ai_data['tokens'] = tokens
-        ai_serializer = MessageCreateSerializer(data=ai_data)
-
-        if prompt_serializer.is_valid() and ai_serializer.is_valid():
-            prompt_serializer.save()
-            ai_serializer.save()
-            return Response(ai_serializer.data, status=status.HTTP_201_CREATED)
-        return Response(prompt_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

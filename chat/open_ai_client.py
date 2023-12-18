@@ -29,7 +29,7 @@ class OpenAIClient:
         """
         トピックをAIに提案してもらう
         """
-        messages = [{'role': "system", "content": '以下の文章のトピックを20文字以内で返しなさい'},
+        messages = [{'role': "system", "content": '以下のチャットのやり取りからトピックを20文字以内で返しなさい'},
                     {"role": "user", "content": prompt}]
         res = openai.chat.completions.create(
             model=self.model_name,
@@ -51,3 +51,15 @@ class OpenAIClient:
             max_tokens=max_tokens
         )
         return res
+
+    def generate_stream_response(self, messages: list, max_tokens: int = 1024):
+        _messages = [{'role': "system", "content": self.base_system_order}]
+        for elm in messages:
+            _messages.append(elm)
+        response = openai.chat.completions.create(
+            model=self.model_name,
+            messages=_messages,
+            max_tokens=max_tokens,
+            stream=True
+        )
+        return response
