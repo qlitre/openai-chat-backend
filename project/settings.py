@@ -16,7 +16,7 @@ SECRET_KEY = os.getenv('DJANGO_SECRET')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost'] + [os.environ.get('ALLOWED_HOST')]
 
 # Application definition
 
@@ -144,14 +144,15 @@ DJOSER = {
     },
 }
 
-CORS_ORIGIN_WHITELIST = (
-    'http://127.0.0.1:3000',
-    'http://localhost:3000',
-)
+CORS_ORIGIN_WHITELIST = [
+                            'http://127.0.0.1:3000',
+                            'http://localhost:3000',
+                        ] + [os.environ.get('CORS_ORIGIN_WHITELIST')]
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+                           "http://localhost:3000",
+                           "http://127.0.0.1:3000",
+                       ] + [os.environ.get('CORS_ALLOWED_ORIGINS')]
 
 # When you using credential include in the frontend must include below line
 CORS_ALLOW_CREDENTIALS = True
@@ -169,7 +170,7 @@ EMAIL_USE_TLS = True
 SESSION_COOKIE_AGE = 1800  # 30 Min
 
 # It will resolve error Forbidden (Origin checking failed - http://127.0.0.1:3000 does not match any trusted origins.)
-CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:3000', 'http://localhost:3000']
+CSRF_TRUSTED_ORIGINS = ['http://127.0.0.1:3000', 'http://localhost:3000'] + [os.environ.get('CSRF_TRUSTED_ORIGINS')]
 
 # default is 31449600 seconds = 1 year approx
 CSRF_COOKIE_AGE = 60 * 60 * 24 * 14  # 14 days
