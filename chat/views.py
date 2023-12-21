@@ -67,9 +67,6 @@ class ChatGPTStreamView(APIView):
             chat_completion_delta = chunk.choices[0].delta
             data = json.dumps(dict(chat_completion_delta))
             yield f'data: {data}\n\n'
-        # ストリームの終了を示すメッセージを送信
-        end_of_stream_message = json.dumps({"end_of_stream": True})
-        yield f'data: {end_of_stream_message}'
 
     def post(self, request):
         prompt = self.request.data.get('prompt')
@@ -95,8 +92,6 @@ class ChatGPTStreamWithHistoryView(APIView):
             chat_completion_delta = chunk.choices[0].delta
             data = json.dumps(dict(chat_completion_delta))
             yield f'data: {data}\n\n'
-        end_of_stream_message = json.dumps({"end_of_stream": True})
-        yield f'data: {end_of_stream_message}'
 
     def post(self, request, *args, **kwargs):
         prompt = self.request.data.get('prompt')
@@ -247,14 +242,7 @@ class ConversationCreate(generics.CreateAPIView):
                 tokens=calc_token(ai_res),
                 is_bot=True
             )
-            prompt_serializer = MessageCreateSerializer(new_prompt)
-            ai_res_serializer = MessageCreateSerializer(new_ai_res)
-            response_data = {
-                'conversation': serializer.data,
-                'new_prompt': prompt_serializer.data,
-                'new_ai_res': ai_res_serializer.data
-            }
-            return Response(response_data, status=status.HTTP_201_CREATED)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
